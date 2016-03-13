@@ -1,0 +1,7 @@
+{
+    "require": {
+        "slim/slim": "^3.3",
+        "slim/php-view": "^2.1",
+        "nategood/httpful": "^0.2.20"
+    }
+}
