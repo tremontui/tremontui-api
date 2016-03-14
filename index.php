@@ -52,5 +52,40 @@ $app->get( '/', function( $request, $response, $args ) use( $db_ini ){
 	
 });
 
+$app->group( '/users', function() use( $db_ini ){
+	
+	$host = $db_ini['server'];
+	$port = $db_ini['port'];
+	$database = $db_ini['server_db'];
+	$username = $db_ini['server_user'];
+	$password = $db_ini['server_password'];
+	
+	$db_sourcer = new PDO_Sourcer( "mysql:host=$host;port=$port;dbname=$database", $username, $password );
+	
+	//GET ALL USERS
+	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
+
+		$query = "SELECT * users";
+		print_r( $db_sourcer->RunQuery( $query, [] ) );
+		
+	});
+	
+	//GET USER BY ID
+	$this->get( '{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+	});
+	
+	//POST NEW USER
+	$this->post( '', function( $request, $response, $args ) use( $db_sourcer ){
+		
+	});
+	
+	//PATCH USER UPDATE WITH PARAMS
+	$this->patch( '{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+	});
+	
+});
+
 $app->run();
 ?>
