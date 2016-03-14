@@ -3,6 +3,7 @@
  * BOOTSTRAP
  */
 require_once './vendor/autoload.php';
+require_once './api_bootstrap.php';
 
 session_start();
 
@@ -41,7 +42,9 @@ $app->add( function( Request $request, Response $response, callable $next ) {
     return $next($request, $response);
 });
 
-$app->get( '/', function( $request, $response, $args ){
+$app->get( '/', function( $request, $response, $args ) use( $db_ini ){
+	
+	print_r( $db_ini );
 	
 	$onload = ['title' => 'Tremont UI API Documentation'];
 	
