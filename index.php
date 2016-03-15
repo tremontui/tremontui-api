@@ -78,6 +78,10 @@ $app->group( '/users', function() use( $db_ini ){
 	//POST NEW USER
 	$this->post( '', function( $request, $response, $args ) use( $db_sourcer ){
 		
+		$params = $request->getQueryParams();
+		
+		print_r( $params );
+		
 	});
 	
 	//PATCH USER UPDATE WITH PARAMS
