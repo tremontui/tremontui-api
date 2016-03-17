@@ -75,7 +75,7 @@ $app->group( '/users', function() use( $db_ini ){
 		
 		$api_return = new API_Return( "true", $db_return );
 		
-		return $response->withJson( $api_return, 201 );
+		return $response->withJson( $api_return, 200 );
 		
 	});
 	
@@ -93,7 +93,7 @@ $app->group( '/users', function() use( $db_ini ){
 		
 		$api_return = new API_Return( "true", $db_return );
 		
-		return $response->withJson( $api_return, 201 );
+		return $response->withJson( $api_return, 200 );
 		
 	});
 	
@@ -123,8 +123,49 @@ $app->group( '/users', function() use( $db_ini ){
 	});
 	
 	//PATCH USER UPDATE WITH PARAMS
-	$this->patch( '{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
+	$this->patch( '/{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
 		
+	});
+	
+	//VERB BASED ROUTES
+	$this->post( '/verify_password/{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$params = $request->getQueryParams();
+		if( !isset( $params['password'] ) ){
+			
+			$api_return = new API_Return( 'false', 'A parameter [password] must be provided.' );
+		
+			return $response->withJson( $api_return, 400 );
+			
+		} else {
+			
+			$pass_svc = new Password_Service();
+			
+			$query = "SELECT Password FROM users WHERE ID = :id";
+			$query_params = [':id'=>$args['user_id']];
+			
+			$db_return = $db_sourcer->RunQuery( $query, $query_params );
+			
+			if( $db_return->db_success != 'true' ){
+				
+				$api_return = new API_Return( "true", $db_return );
+		
+				return $response->withJson( $api_return, 200 );
+				
+			} else {
+				
+				$pass_svc->Store_Hash( $db_return->result[0]['Password'] );
+				
+				$result = ['password_verified'=>$pass_svc->Compare_Password( $params['password'] )];
+				
+				$api_return = new API_Return( "true", $result );
+		
+				return $response->withJson( $api_return, 200 );
+				
+			}
+			
+		}
+				
 	});
 	
 });
