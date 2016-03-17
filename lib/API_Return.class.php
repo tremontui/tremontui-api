@@ -1,11 +1,11 @@
 <?php
 
-class PDO_Return{
+class API_Return{
 	
 	/**
 	 *	PROPERTIES
 	 */
-	public $db_success;
+	public $api_success;
 	public $result;
 	 
 	/**
@@ -13,7 +13,7 @@ class PDO_Return{
 	 */
 	public function __construct( $success, $result ){
 		
-		$this->db_success = $success;
+		$this->api_success = $success;
 		$this->result = $result;
 		
 	}

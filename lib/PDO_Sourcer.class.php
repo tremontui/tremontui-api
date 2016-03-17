@@ -26,11 +26,11 @@ class PDO_Sourcer{
 		
 		if( $p_stmt->execute( $params ) ){
 			
-			$return = new PDO_Return( TRUE, $_pdo->fetchAll() );
+			$return = new PDO_Return( 'true', $p_stmt->fetchAll() );
 			
 		} else {
 			
-			$return = new PDO_Return( FALSE, $_pdo->errorInfo() );
+			$return = new PDO_Return( 'false', $p_stmt->errorInfo() );
 			
 		}
 		
@@ -50,11 +50,11 @@ class PDO_Sourcer{
 			
 			if( $p_stmt->execute( $params ) ){
 				
-				$return_array[] = new PDO_Return( TRUE, $_pdo->fetchAll() );
+				$return_array[] = new PDO_Return( 'true', $p_stmt->fetchAll() );
 				
 			} else {
 				
-				$return_array[] = new PDO_Return( FALSE, $_pdo->errorInfo() );
+				$return_array[] = new PDO_Return( 'false', $p_stmt->errorInfo() );
 				
 			}
 			

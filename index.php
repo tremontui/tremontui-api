@@ -65,8 +65,11 @@ $app->group( '/users', function() use( $db_ini ){
 	//GET ALL USERS
 	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
 
-		$query = "SELECT * users";
-		print_r( $db_sourcer->RunQuery( $query, [] ) );
+		$query = "SELECT * FROM users";
+		
+		$db_return = $db_sourcer->RunQuery( $query, [] );
+		
+		return $response->withJson( $db_return, 201 );
 		
 	});
 	
@@ -79,8 +82,24 @@ $app->group( '/users', function() use( $db_ini ){
 	$this->post( '', function( $request, $response, $args ) use( $db_sourcer ){
 		
 		$params = $request->getQueryParams();
+		$pass_svc = new Password_Service();
 		
-		print_r( $params );
+		$pass_hash = $pass_svc->Encrpyt_Password( $params['password'] )->Get_Hash();
+		
+		$query = "INSERT INTO users (Username, Email, First_Name, Last_Name, Password) VALUES (:username, :email, :first_name, :last_name, :pass_hash)";
+		$query_params = [
+			':username'=>$params['username'],
+			':email'=>$params['email'],
+			':first_name'=>$params['first_name'],
+			'last_name'=>$params['last_name'],
+			':pass_hash'=>$pass_hash 
+		];
+		
+		$db_return = $db_sourcer->RunQuery( $query, $query_params );
+		
+		$api_return = new API_Return( "true", $db_return );
+		
+		return $response->withJson( $api_return, 201 );
 		
 	});
 	

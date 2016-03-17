@@ -17,6 +17,7 @@ class Password_Service{
 	public function Encrpyt_Password( $raw_pass ){
 		
 		$this->password_hash = password_hash( $raw_pass, PASSWORD_DEFAULT );
+		return $this;
 		
 	}
 	
@@ -37,6 +38,7 @@ class Password_Service{
 	public function Store_Hash( $hash ){
 		
 		$this->password_hash = $hash;
+		return $this;
 		
 	}
 	
