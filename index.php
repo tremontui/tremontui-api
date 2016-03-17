@@ -66,7 +66,6 @@ $app->group( '/users', function() use( $db_ini ){
 	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
 		
 		$params = $request->getQueryParams();
-		
 		$select_prep = new Select_Prepare( 'ID,Username,Email,First_Name,Last_Name', $params );
 		$select_fields = $select_prep->Protect_Passwords()->Get_Selects();
 		
@@ -83,7 +82,11 @@ $app->group( '/users', function() use( $db_ini ){
 	//GET USER BY ID
 	$this->get( '/{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
 		
-		$query = "SELECT * FROM users WHERE ID = :id";
+		$params = $request->getQueryParams();
+		$select_prep = new Select_Prepare( 'ID,Username,Email,First_Name,Last_Name', $params );
+		$select_fields = $select_prep->Protect_Passwords()->Get_Selects();
+		
+		$query = "SELECT $select_fields FROM users WHERE ID = :id";
 		$query_params = [':id'=>$args['user_id']];
 		
 		$db_return = $db_sourcer->RunQuery( $query, $query_params );
