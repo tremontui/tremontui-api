@@ -39,12 +39,10 @@ $app->add( function( Request $request, Response $response, callable $next ) {
         return $response->withRedirect((string)$uri, 301);
     }
 
-    return $next($request, $response);
+    return $next( $request, $response );
 });
 
 $app->get( '/', function( $request, $response, $args ) use( $db_ini ){
-	
-	print_r( $db_ini );
 	
 	$onload = ['title' => 'Tremont UI API Documentation'];
 	
@@ -54,27 +52,45 @@ $app->get( '/', function( $request, $response, $args ) use( $db_ini ){
 
 $app->group( '/users', function() use( $db_ini ){
 	
+	/*
+	 *	PREPARE FOR DB EXECUTIONS BY BUILDING SOURCER
+	 */
 	$host = $db_ini['server'];
 	$port = $db_ini['port'];
 	$database = $db_ini['server_db'];
 	$username = $db_ini['server_user'];
 	$password = $db_ini['server_password'];
-	
 	$db_sourcer = new PDO_Sourcer( "mysql:host=$host;port=$port;dbname=$database", $username, $password );
 	
 	//GET ALL USERS
 	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
-
-		$query = "SELECT * FROM users";
+		
+		$params = $request->getQueryParams();
+		
+		$select_prep = new Select_Prepare( 'ID,Username,Email,First_Name,Last_Name', $params );
+		$select_fields = $select_prep->Protect_Passwords()->Get_Selects();
+		
+		$query = "SELECT $select_fields FROM users";
 		
 		$db_return = $db_sourcer->RunQuery( $query, [] );
 		
-		return $response->withJson( $db_return, 201 );
+		$api_return = new API_Return( "true", $db_return );
+		
+		return $response->withJson( $api_return, 201 );
 		
 	});
 	
 	//GET USER BY ID
-	$this->get( '{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
+	$this->get( '/{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$query = "SELECT * FROM users WHERE ID = :id";
+		$query_params = [':id'=>$args['user_id']];
+		
+		$db_return = $db_sourcer->RunQuery( $query, $query_params );
+		
+		$api_return = new API_Return( "true", $db_return );
+		
+		return $response->withJson( $api_return, 201 );
 		
 	});
 	

@@ -26,7 +26,7 @@ class PDO_Sourcer{
 		
 		if( $p_stmt->execute( $params ) ){
 			
-			$return = new PDO_Return( 'true', $p_stmt->fetchAll() );
+			$return = new PDO_Return( 'true', $p_stmt->fetchAll(PDO::FETCH_ASSOC) );
 			
 		} else {
 			
@@ -50,7 +50,7 @@ class PDO_Sourcer{
 			
 			if( $p_stmt->execute( $params ) ){
 				
-				$return_array[] = new PDO_Return( 'true', $p_stmt->fetchAll() );
+				$return_array[] = new PDO_Return( 'true', $p_stmt->fetchAll(PDO::FETCH_ASSOC) );
 				
 			} else {
 				
