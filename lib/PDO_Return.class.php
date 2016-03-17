@@ -5,7 +5,7 @@ class PDO_Return{
 	/**
 	 *	PROPERTIES
 	 */
-	public $success;
+	public $db_success;
 	public $result;
 	 
 	/**
@@ -13,7 +13,7 @@ class PDO_Return{
 	 */
 	public function __construct( $success, $result ){
 		
-		$this->successful = $success;
+		$this->db_success = $success;
 		$this->result = $result;
 		
 	}
