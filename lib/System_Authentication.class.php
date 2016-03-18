@@ -24,7 +24,7 @@ class System_Authentication{
 		
 	}
 	
-	public function Authenticate_Tremont( $user_id ){
+	public function Add_Authenticate_Tremont( $user_id ){
 		
 		//CONFIGS FOR TOKENS
 		$token_bytes = 32;
@@ -37,22 +37,72 @@ class System_Authentication{
 		$query_params = [
 			':user_id'=>$user_id,
 			':token'=>$this->Generate_Token( $token_bytes )->Get_Token(),
-			'authentication'=>$authFor,
+			':authentication'=>$authFor,
 			':expiration'=>$expiration
 		];
 		
-		//$db_return = $this->pdo_sourcer->RunQuery( $query, $query_params );
-		
-		//if( $db_return->db_success != 'true' ){
+		$db_return = $this->pdo_sourcer->RunQuery( $query, $query_params );
+
+		if( $db_return->db_success == 'true' ){
 			
 			$return = [
 				'token'=>$this->Get_Token(),
 				'expires'=>$expiration
 			];
 			
-			return $query_params;
+			return $return;
 			
-		//}
+		}
+		
+	}
+	
+	public function Authenticate_Tremont( $input ){
+		
+		$query = "SELECT User_ID, Expiration FROM authentications WHERE Authentication = 'TREMONT' AND Token = :token";
+		$query_params = [':token'=>$input];
+		
+		$db_return = $this->pdo_sourcer->RunQuery( $query, $query_params );
+		
+		if( $db_return->db_success == 'true' ){
+			
+			if( $db_return->result == null ){
+				
+				$return = [
+					'success'=>'false',
+					'result'=>'Not a valid authentication token.'
+				];
+				
+				return $return;
+				
+			} else {
+				
+				//TEST FOR Expiration
+				$now_utc = new DateTime( gmdate( 'Y-m-d H:i:s' ) );
+				$expires = new DateTime( $db_return->result[0]['Expiration'] );
+				
+				if( $now_time > $expires ){
+					
+					$return = [
+						'success'=>'false',
+						'result'=>'The given authentication token has expired.'
+					];
+					
+					return $return;
+					
+				} else {
+					
+					$return = [
+						'success'=>'true',
+						'result'=>['User_ID'=>$db_return->result[0]['User_ID']]
+					];
+					
+					return $return;
+					
+				}
+				
+			}
+			
+		}
 		
 	}
 	
