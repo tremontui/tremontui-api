@@ -83,7 +83,8 @@ $app->group( '/authentications', function() use ( $db_sourcer ){
 	
 	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
 		
-		print_r( bin2hex( openssl_random_pseudo_bytes( 32 ) ) );
+		$sys_auth = new System_Authentication( $db_sourcer );	
+		print_r( $sys_auth->Authenticate_Tremont( 1 ) );
 		
 	});
 	
@@ -198,7 +199,14 @@ $app->group( '/users', function() use( $db_sourcer ){
 				
 				$pass_svc->Store_Hash( $db_return->result[0]['Password'] );
 				
-				$result = ['password_verified'=>$pass_svc->Compare_Password( $params['password'] )];
+				$pass_verified = $pass_svc->Compare_Password( $params['password'] );
+				$result['password_verified'] = $pass_verified;
+				
+				if( $pass_verified == 'true' ){
+					
+					$sys_auth = new System_Authentication( $db_sourcer );	
+					
+				}
 				
 				$api_return = new API_Return( "true", $result );
 		
