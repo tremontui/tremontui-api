@@ -60,15 +60,18 @@ $app->add( function( Request $request, Response $response, callable $next ) use(
 	
 	$path_wl = ['/users/verify_username', '/users/verify_password'];
 	
+	
 	//PASS IF HAVE THE SYSAUTH TOKEN HEADER
 	if( isset( $headers['HTTP_SYSAUTH'] ) ){
+		
 		$sys_auth = new System_Authentication( $db_sourcer );
 		
 		//AUTHENTICATE
-		$auth_result = $sys_auth->Authenticate_Tremont( $headers['HTTP_SYSAUTH'] );
-		if( $auth_result->success == 'true' ){
+		$auth_result = $sys_auth->Authenticate_Tremont( $headers['HTTP_SYSAUTH'][0] );
+		
+		if( $auth_result['success'] == 'true' ){
 			
-			$newResponse = $response->withHeader( 'User_ID', $auth_result->result['User_ID'] );
+			$newResponse = $response->withHeader( 'User_ID', $auth_result['result']['User_ID'] );
 			
 			return $next( $request, $newResponse );
 			
@@ -254,11 +257,22 @@ $app->group( '/users', function() use( $db_sourcer ){
 					
 					$sys_auth = new System_Authentication( $db_sourcer );	
 					
-				}
-				
-				$api_return = new API_Return( "true", $result );
+					$return = [
+						'password_verified'=>'true',
+						'authentication'=>$sys_auth->Add_Authenticate_Tremont( $params['user_id'] )
+					];
+					
+					$api_return = new API_Return( "true", $return );
 		
-				return $response->withJson( $api_return, 200 );
+					return $response->withJson( $api_return, 200 );
+					
+				} else {
+					
+					$api_return = new API_Return( "false", $result );
+		
+					return $response->withJson( $api_return, 401 );
+					
+				}
 				
 			}
 			

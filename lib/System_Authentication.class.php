@@ -58,7 +58,7 @@ class System_Authentication{
 	
 	public function Authenticate_Tremont( $input ){
 		
-		$query = "SELECT User_ID, Expiration FROM authentications WHERE Authentication = 'TREMONT' AND Token = :token";
+		$query = "SELECT User_ID,Expiration FROM authentications WHERE Authentication = 'TREMONT' AND Token = :token";
 		$query_params = [':token'=>$input];
 		
 		$db_return = $this->pdo_sourcer->RunQuery( $query, $query_params );
@@ -80,7 +80,7 @@ class System_Authentication{
 				$now_utc = new DateTime( gmdate( 'Y-m-d H:i:s' ) );
 				$expires = new DateTime( $db_return->result[0]['Expiration'] );
 				
-				if( $now_time > $expires ){
+				if( $now_utc > $expires ){
 					
 					$return = [
 						'success'=>'false',
