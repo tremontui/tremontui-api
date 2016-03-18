@@ -26,6 +26,16 @@ $app = new Slim\App( $c );
 $container = $app->getContainer();
 $container['renderer'] = new PhpRenderer( './templates' );
 
+/*
+ *	PREPARE FOR DB EXECUTIONS BY BUILDING SOURCER
+ */
+$host = $db_ini['server'];
+$port = $db_ini['port'];
+$database = $db_ini['server_db'];
+$username = $db_ini['server_user'];
+$password = $db_ini['server_password'];
+$db_sourcer = new PDO_Sourcer( "mysql:host=$host;port=$port;dbname=$database", $username, $password );
+
 /**
  *	MIDDLEWARE
  */
@@ -42,26 +52,54 @@ $app->add( function( Request $request, Response $response, callable $next ) {
     return $next( $request, $response );
 });
 
-/*$app->add( function( Request $request, Response $response, callable $next ){
+$app->add( function( Request $request, Response $response, callable $next ) use( $db_sourcer ){
 	
 	$uri = $request->getUri();
 	$path = $uri->getPath();
 	$headers = $request->getHeaders();
 	
-	$path_thru = ['/users/'];
+	$path_wl = ['/users/verify_username', '/users/verify_password'];
+	
 	
 	//PASS IF HAVE THE SYSAUTH TOKEN HEADER
 	if( isset( $headers['HTTP_SYSAUTH'] ) ){
+		
+		$sys_auth = new System_Authentication( $db_sourcer );
+		
 		//AUTHENTICATE
+		$auth_result = $sys_auth->Authenticate_Tremont( $headers['HTTP_SYSAUTH'][0] );
+		
+		if( $auth_result['success'] == 'true' ){
+			
+			$newResponse = $response->withHeader( 'User_ID', $auth_result['result']['User_ID'] );
+			
+			return $next( $request, $newResponse );
+			
+		} else {
+			
+			$api_return = new API_Return( "false", $auth_result );
+		
+			return $response->withJson( $api_return, 401 );
+			
+		}
+		
 	} else {
 		//CHECK IF LOGGING IN
+		if( in_array( $path, $path_wl ) ){
+			
+			return $next( $request, $response );
+			
+		}
+		
 	}
 	
-	return $response->withJson( $headers );
+	$api_return = new API_Return( "false", 'No Authentication Provided.' );
+		
+	return $response->withJson( $api_return, 401 );
 	
-});*/
+});
 
-$app->get( '/', function( $request, $response, $args ) use( $db_ini ){
+$app->get( '/', function( $request, $response, $args ) use( $db_sourcer ){
 	
 	$onload = ['title' => 'Tremont UI API Documentation'];
 	
@@ -69,21 +107,15 @@ $app->get( '/', function( $request, $response, $args ) use( $db_ini ){
 	
 });
 
-/*
- *	PREPARE FOR DB EXECUTIONS BY BUILDING SOURCER
- */
-$host = $db_ini['server'];
-$port = $db_ini['port'];
-$database = $db_ini['server_db'];
-$username = $db_ini['server_user'];
-$password = $db_ini['server_password'];
-$db_sourcer = new PDO_Sourcer( "mysql:host=$host;port=$port;dbname=$database", $username, $password );
-
 $app->group( '/authentications', function() use ( $db_sourcer ){
 	
 	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
 		
-		print_r( bin2hex( openssl_random_pseudo_bytes( 32 ) ) );
+		$sys_auth = new System_Authentication( $db_sourcer );	
+		
+		$auth_data = $sys_auth->Add_Authenticate_Tremont( 1 );
+
+		$sys_auth->Authenticate_Tremont( $auth_data['token'] );
 		
 	});
 	
@@ -157,25 +189,45 @@ $app->group( '/users', function() use( $db_sourcer ){
 	});
 	
 	//VERB BASED ROUTES
-	$this->post( '/verify_username/{username}', function( $request, $response, $args ) use( $db_sourcer ){
+	$this->post( '/verify_username', function( $request, $response, $args ) use( $db_sourcer ){
 			
-			$pass_svc = new Password_Service();
+			$params = $request->getQueryParams();
+			if( !isset( $params['username'] ) ){
+				
+				$api_return = new API_Return( "false", 'No username provided' );
+				
+				return $response->withJson( $api_return, 400 );
+				
+			} else {
 			
-			$query = "SELECT Password FROM users WHERE ID = :id";
-			$query_params = [':id'=>$args['user_id']];
-			
-			$db_return = $db_sourcer->RunQuery( $query, $query_params );
-		
-			return $response->withJson( $api_return, 200 );
+				$query = "SELECT ID FROM users WHERE Username = :username";
+				$query_params = [':username'=>$params['username']];
+				
+				$db_return = $db_sourcer->RunQuery( $query, $query_params );
+				
+				if( $db_return->result == null ){
+					
+					$api_return = new API_Return( "false", 'Invalid username' );
+				
+					return $response->withJson( $api_return, 400 );
+					
+				} else {
+					
+					$api_return = new API_Return( "true", ['User_ID'=>$db_return->result[0]['ID']] );
+				
+					return $response->withJson( $api_return, 200 );
+				}
+				
+			}	
 				
 	});
 	
-	$this->post( '/verify_password/{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
+	$this->post( '/verify_password', function( $request, $response, $args ) use( $db_sourcer ){
 		
 		$params = $request->getQueryParams();
-		if( !isset( $params['password'] ) ){
+		if( !isset( $params['password'] ) || !isset( $params['user_id'] ) ) {
 			
-			$api_return = new API_Return( 'false', 'A parameter [password] must be provided.' );
+			$api_return = new API_Return( 'false', 'A parameter [password] and [user_id] must be provided.' );
 		
 			return $response->withJson( $api_return, 400 );
 			
@@ -184,7 +236,7 @@ $app->group( '/users', function() use( $db_sourcer ){
 			$pass_svc = new Password_Service();
 			
 			$query = "SELECT Password FROM users WHERE ID = :id";
-			$query_params = [':id'=>$args['user_id']];
+			$query_params = [':id'=>$params['user_id']];
 			
 			$db_return = $db_sourcer->RunQuery( $query, $query_params );
 			
@@ -198,11 +250,29 @@ $app->group( '/users', function() use( $db_sourcer ){
 				
 				$pass_svc->Store_Hash( $db_return->result[0]['Password'] );
 				
-				$result = ['password_verified'=>$pass_svc->Compare_Password( $params['password'] )];
+				$pass_verified = $pass_svc->Compare_Password( $params['password'] );
+				$result['password_verified'] = $pass_verified;
 				
-				$api_return = new API_Return( "true", $result );
+				if( $pass_verified == 'true' ){
+					
+					$sys_auth = new System_Authentication( $db_sourcer );	
+					
+					$return = [
+						'password_verified'=>'true',
+						'authentication'=>$sys_auth->Add_Authenticate_Tremont( $params['user_id'] )
+					];
+					
+					$api_return = new API_Return( "true", $return );
 		
-				return $response->withJson( $api_return, 200 );
+					return $response->withJson( $api_return, 200 );
+					
+				} else {
+					
+					$api_return = new API_Return( "false", $result );
+		
+					return $response->withJson( $api_return, 401 );
+					
+				}
 				
 			}
 			
