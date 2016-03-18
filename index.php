@@ -42,6 +42,25 @@ $app->add( function( Request $request, Response $response, callable $next ) {
     return $next( $request, $response );
 });
 
+/*$app->add( function( Request $request, Response $response, callable $next ){
+	
+	$uri = $request->getUri();
+	$path = $uri->getPath();
+	$headers = $request->getHeaders();
+	
+	$path_thru = ['/users/'];
+	
+	//PASS IF HAVE THE SYSAUTH TOKEN HEADER
+	if( isset( $headers['HTTP_SYSAUTH'] ) ){
+		//AUTHENTICATE
+	} else {
+		//CHECK IF LOGGING IN
+	}
+	
+	return $response->withJson( $headers );
+	
+});*/
+
 $app->get( '/', function( $request, $response, $args ) use( $db_ini ){
 	
 	$onload = ['title' => 'Tremont UI API Documentation'];
@@ -50,17 +69,27 @@ $app->get( '/', function( $request, $response, $args ) use( $db_ini ){
 	
 });
 
-$app->group( '/users', function() use( $db_ini ){
+/*
+ *	PREPARE FOR DB EXECUTIONS BY BUILDING SOURCER
+ */
+$host = $db_ini['server'];
+$port = $db_ini['port'];
+$database = $db_ini['server_db'];
+$username = $db_ini['server_user'];
+$password = $db_ini['server_password'];
+$db_sourcer = new PDO_Sourcer( "mysql:host=$host;port=$port;dbname=$database", $username, $password );
+
+$app->group( '/authentications', function() use ( $db_sourcer ){
 	
-	/*
-	 *	PREPARE FOR DB EXECUTIONS BY BUILDING SOURCER
-	 */
-	$host = $db_ini['server'];
-	$port = $db_ini['port'];
-	$database = $db_ini['server_db'];
-	$username = $db_ini['server_user'];
-	$password = $db_ini['server_password'];
-	$db_sourcer = new PDO_Sourcer( "mysql:host=$host;port=$port;dbname=$database", $username, $password );
+	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		print_r( bin2hex( openssl_random_pseudo_bytes( 32 ) ) );
+		
+	});
+	
+});
+
+$app->group( '/users', function() use( $db_sourcer ){
 	
 	//GET ALL USERS
 	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
@@ -128,6 +157,19 @@ $app->group( '/users', function() use( $db_ini ){
 	});
 	
 	//VERB BASED ROUTES
+	$this->post( '/verify_username/{username}', function( $request, $response, $args ) use( $db_sourcer ){
+			
+			$pass_svc = new Password_Service();
+			
+			$query = "SELECT Password FROM users WHERE ID = :id";
+			$query_params = [':id'=>$args['user_id']];
+			
+			$db_return = $db_sourcer->RunQuery( $query, $query_params );
+		
+			return $response->withJson( $api_return, 200 );
+				
+	});
+	
 	$this->post( '/verify_password/{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
 		
 		$params = $request->getQueryParams();
