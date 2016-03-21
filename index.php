@@ -77,7 +77,7 @@ $app->add( function( Request $request, Response $response, callable $next ) use(
 			
 		} else {
 			
-			$api_return = new API_Return( "false", $auth_result );
+			$api_return = new API_Return( "false", $auth_result['result'] );
 		
 			return $response->withJson( $api_return, 401 );
 			
@@ -107,15 +107,61 @@ $app->get( '/', function( $request, $response, $args ) use( $db_sourcer ){
 	
 });
 
+$app->group( '/channeladvisor', function() use ( $db_sourcer ){
+	
+	//REFRESH TOKENS
+	$this->get( '/redirect', function( $request, $response, $args ){
+		
+	});
+	
+	$this->get( '/refresh_token', function( $request, $response, $args ){
+		
+		$ca_response = \Httpful\Request::post( 'https://api.channeladvisor.com/oauth2/token' )
+			->addHeaders(
+				[
+					'Content-Type'=>'application/x-www-form-urlencoded',
+					'Authorization'=>
+				]
+			)
+			->expectsJson()
+			->send();
+		$api_response_body = $api_response->body;
+		
+	});
+	
+});
+
 $app->group( '/authentications', function() use ( $db_sourcer ){
 	
-	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
+	$this->get( '/user/{token}', function( $request, $response, $args ) use( $db_sourcer ){
 		
-		$sys_auth = new System_Authentication( $db_sourcer );	
+		$query = "SELECT 	
+							authentications.User_ID,
+							users.First_Name, 
+							users.Last_Name, 
+							users.Username 
+						FROM 
+							authentications INNER JOIN users 
+						ON 
+						authentications.User_ID=users.ID 
+						WHERE authentications.Token = :token";
+		$query_params = [':token'=>$args['token']];
 		
-		$auth_data = $sys_auth->Add_Authenticate_Tremont( 1 );
-
-		$sys_auth->Authenticate_Tremont( $auth_data['token'] );
+		$db_return = $db_sourcer->RunQuery( $query, $query_params );
+		
+		if( $db_return->result == null ){
+			
+			$api_return = new API_Return( "false", 'Invalid Token' );
+		
+			return $response->withJson( $api_return, 401 );
+			
+		} else {
+			
+			$api_return = new API_Return( "true", $db_return->result[0] );
+		
+			return $response->withJson( $api_return, 200 );
+			
+		}
 		
 	});
 	
