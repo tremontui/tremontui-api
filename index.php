@@ -58,7 +58,7 @@ $app->add( function( Request $request, Response $response, callable $next ) use(
 	$path = $uri->getPath();
 	$headers = $request->getHeaders();
 	
-	$path_wl = ['/users/verify_username', '/users/verify_password'];
+	$path_wl = ['/users/verify_username', '/users/verify_password', '/channeladvisor/redirect'];
 	
 	
 	//PASS IF HAVE THE SYSAUTH TOKEN HEADER
@@ -71,8 +71,8 @@ $app->add( function( Request $request, Response $response, callable $next ) use(
 		
 		if( $auth_result['success'] == 'true' ){
 			
-			$newResponse = $response->withHeader( 'User_ID', $auth_result['result']['User_ID'] );
-			
+			$newResponse = $response->withHeader( 'User_ID', $auth_result['result']['User_ID'][0] );
+
 			return $next( $request, $newResponse );
 			
 		} else {
@@ -107,25 +107,119 @@ $app->get( '/', function( $request, $response, $args ) use( $db_sourcer ){
 	
 });
 
-$app->group( '/channeladvisor', function() use ( $db_sourcer ){
+$app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 	
-	//REFRESH TOKENS
-	$this->get( '/redirect', function( $request, $response, $args ){
+	$this->get( '/authorize', function( $request, $response, $args ) use( $ca_ini ){
+		
+		$app_id = $ca_ini['app_id'];
+		$redirect = $ca_ini['redirect'];
+		
+		$uri_base = "https://api.channeladvisor.com/oauth2/authorize?client_id=$app_id&response_type=code&scope=orders%20inventory&redirect_uri=$redirect&access_type=offline";
+		
+		$response = \Httpful\Request::get($uri_base)
+			->send();
+		//print_r( $response->body );
+		return $response->body;
 		
 	});
 	
-	$this->get( '/refresh_token', function( $request, $response, $args ){
+	$this->get( '/redirect', function( $request, $response, $args ) use ( $ca_ini ){
+		
+		$params = $request->getQueryParams();
+		$app_id = $ca_ini['app_id'];
+		$secret = $ca_ini['secret'];
+		$redirect = $ca_ini['redirect'];
+		$auth_token = $params['code'];
 		
 		$ca_response = \Httpful\Request::post( 'https://api.channeladvisor.com/oauth2/token' )
 			->addHeaders(
 				[
 					'Content-Type'=>'application/x-www-form-urlencoded',
-					'Authorization'=>
+					'Authorization'=>'Basic ' . base64_encode( "$app_id:$secret" )
 				]
 			)
+			->body( "grant_type=authorization_code&code=$auth_token&redirect_uri=$redirect" )
 			->expectsJson()
 			->send();
-		$api_response_body = $api_response->body;
+			
+		$ca_response_body = $ca_response->body;
+		
+		print_r( 'Copy the Appropriate values into your account authentication.' );
+		print_r('<pre>');
+		print_r( $ca_response_body );
+		print_r('</pre>');
+		/*print_r( $ca_response_body );
+		print_r('<pre>');
+		print_r( $response->getHeaders() );
+		print_r('</pre>');*/
+		//print_r( $response );
+	});
+	
+	//REFRESH TOKEN
+	$this->group( '/refresh_token', function() use( $ca_ini, $db_sourcer ){
+		
+		$this->get( '/{token}',  function( $request, $response, $args ) use ( $ca_ini, $db_sourcer ){
+			
+			$query = "SELECT 
+								ca_refresh_tokens.User_ID,
+								ca_refresh_tokens.Token 
+							FROM 
+								authentications INNER JOIN ca_refresh_tokens 
+							ON 
+								authentications.User_ID=ca_refresh_tokens.User_ID 
+							WHERE authentications.Token = :token";
+			$query_params = [':token'=>$args['token']];
+			
+			$db_return = $db_sourcer->RunQuery( $query, $query_params );
+			
+			if( $db_return->result == null ){
+				
+				$api_return = new API_Return( "false", 'No Refresh Token' );
+			
+				return $response->withJson( $api_return, 401 );
+				
+			} else {
+				
+				$api_return = new API_Return( "true", $db_return->result[0] );
+			
+				return $response->withJson( $api_return, 200 );
+				
+			}
+			
+		});
+		
+		$this->post( '', function( $request, $response, $args ) use ( $ca_ini, $db_sourcer ){
+			
+			$params = $request->getQueryParams();
+			$token = $params['token'];
+			
+			$user_id = $response->getHeaders()['User_ID'][0];
+			
+			$query = "INSERT INTO
+								ca_refresh_tokens (User_ID,Token)
+							VALUES (:user_id,:token)";
+			$query_params = [
+				':user_id'=>$user_id,
+				':token'=>$token
+			];
+			
+			$db_return = $db_sourcer->RunQuery( $query, $query_params );
+			
+			if( $db_return->db_success == 'false' ){
+				
+				$api_return = new API_Return( "false", 'Something went wrong' );
+			
+				return $response->withJson( $api_return, 401 );
+				
+			} else {
+				
+				$api_return = new API_Return( "true", $db_return );
+			
+				return $response->withJson( $api_return, 200 );
+				
+			}
+			
+		});
 		
 	});
 	
@@ -143,7 +237,7 @@ $app->group( '/authentications', function() use ( $db_sourcer ){
 						FROM 
 							authentications INNER JOIN users 
 						ON 
-						authentications.User_ID=users.ID 
+							authentications.User_ID=users.ID 
 						WHERE authentications.Token = :token";
 		$query_params = [':token'=>$args['token']];
 		
