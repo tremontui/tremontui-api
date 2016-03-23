@@ -109,6 +109,52 @@ $app->get( '/', function( $request, $response, $args ) use( $db_sourcer ){
 
 $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 	
+	$auth_service = new CA_Auth_Service( $db_sourcer, $ca_ini );
+	
+	$this->get( '/test', function( $request, $response, $args ) use( $auth_service ){
+		
+		$user_id = $response->getHeader('User_ID')[0];
+		$auth = $auth_service->Get_Auth( $user_id );
+		
+		$uri_base = "https://api.channeladvisor.com/v1/products";
+				
+		$ca_response = \Httpful\Request::get( $uri_base )
+			->expectsJson()
+			->addHeaders( array( 
+				'Authorization' => "Bearer " . $auth->auth_token
+			) )
+			->send();
+		
+		print_r('<pre>');
+		print_r( $ca_response->body->value );
+		print_r('</pre>');
+	});
+	
+	$this->get( '/products', function( $request, $response, $args ) use( $auth_service ){
+		$user_id = $response->getHeader('User_ID')[0];
+		$auth = $auth_service->Get_Auth( $user_id );
+		
+		$params = $request->getQueryParams();
+		
+		$uri_base = "https://api.channeladvisor.com/v1/products?";
+		if( isset( $params['select'] ) ){
+			$uri_base .= '$select=' . $params['select'];
+		}
+		if( isset( $params['filter'] ) ){
+			$uri_base .= '&$filter=' . $params['filter'];
+		}
+		
+		$ca_response = \Httpful\Request::get( $uri_base )
+			->expectsJson()
+			->addHeaders( array( 
+				'Authorization' => "Bearer " . $auth->auth_token
+			) )
+			->send();
+		
+		print_r( $ca_response->body );
+		
+	});
+	
 	$this->get( '/authorize', function( $request, $response, $args ) use( $ca_ini ){
 		
 		$app_id = $ca_ini['app_id'];
