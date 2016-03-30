@@ -137,7 +137,7 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 		
 		$params = $request->getQueryParams();
 
-		$uri_base = 'https://api.channeladvisor.com/v1/products?$select=Cost,TotalAvailableQuantity&$filter=Brand%20eq%20' . "'" . str_replace( "^", "%20", $params['brand'] ) . "'";
+		$uri_base = 'https://api.channeladvisor.com/v1/products?$select=Cost,TotalAvailableQuantity&$filter=Brand%20eq%20' . "'" . str_replace( "^", "%20", $params['brand'] ) . "'%20and%20IsParent%20eq%20false";
 		
 		$data_svc = new CA_Data( $auth, $uri_base );
 		
@@ -145,18 +145,28 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 		
 		$return_data = [
 			'TotalQty'=>0,
-			'TotalVal'=>0
+			'TotalVal'=>0,
+			'TotalQtyPages'=>[],
+			'PageVals'=>[]
 		];
 		
 		foreach( $data_vol as $page ){
 			
+			$pageQty = 0;
+			$pageVal = 0;
+			
 			foreach( $page as $product ){
 				
-				$return_data['TotalQty'] += $product->TotalAvailableQuantity;
-				$return_data['TotalVal'] += ( $product->TotalAvailableQuantity * $product->Cost );
+				$pageQty += (int) $product->TotalAvailableQuantity;
+				$pageVal += (float) ( (int) $product->TotalAvailableQuantity * (float) $product->Cost );
+				
+				$return_data['TotalQty'] += (int) $product->TotalAvailableQuantity;
+				$return_data['TotalVal'] += (float) ( (int) $product->TotalAvailableQuantity * (float) $product->Cost );
 				
 			}
-			
+				
+			$return_data['TotalQtyPages'][] = $pageQty;
+			$return_data['PageVals'][] = $pageVal;
 		}
 		
 		return $response->withJson( $return_data, 200 );
@@ -177,6 +187,12 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 		}
 		if( isset( $params['filter'] ) ){
 			$uri_base .= '&$filter=' . str_replace( '^', '%20', $params['filter'] );
+		}
+		if( isset( $params['orderby'] ) ){
+			$uri_base .= '&$orderby=' . $params['orderby'];
+		}
+		if( isset( $params['skip'] ) ){
+			$uri_base .= '&$skip=' . $params['skip'];
 		}
 		
 		$ca_response = \Httpful\Request::get( $uri_base )
