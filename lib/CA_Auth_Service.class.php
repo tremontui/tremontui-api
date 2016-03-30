@@ -33,7 +33,7 @@ class CA_Auth_Service{
 			//CHECK FOR EXPIRATION
 			$now = new DateTime( gmdate( 'Y-m-d H:i:s' ) );
 			$expiration = new DateTime( $last_auth->expiration );
-			print_r( $now->format('Y-m-d H:i:s') . ' vs ' . $expiration->format('Y-m-d H:i:s') );
+			//print_r( $now->format('Y-m-d H:i:s') . ' vs ' . $expiration->format('Y-m-d H:i:s') );
 			if( $now > $expiration ){
 				//EXPIRED
 				$auth = $this->Request_Auth( $refresh_token );

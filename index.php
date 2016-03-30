@@ -130,18 +130,53 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 		print_r('</pre>');
 	});
 	
+	$this->get( '/brandoverview', function( $request, $response, $args ) use( $auth_service ){
+
+		$user_id = $response->getHeader('User_ID')[0];
+		$auth = $auth_service->Get_Auth( $user_id );
+		
+		$params = $request->getQueryParams();
+
+		$uri_base = 'https://api.channeladvisor.com/v1/products?$select=Cost,TotalAvailableQuantity&$filter=Brand%20eq%20' . "'" . str_replace( "^", "%20", $params['brand'] ) . "'";
+		
+		$data_svc = new CA_Data( $auth, $uri_base );
+		
+		$data_vol = $data_svc->GetAllPages();
+		
+		$return_data = [
+			'TotalQty'=>0,
+			'TotalVal'=>0
+		];
+		
+		foreach( $data_vol as $page ){
+			
+			foreach( $page as $product ){
+				
+				$return_data['TotalQty'] += $product->TotalAvailableQuantity;
+				$return_data['TotalVal'] += ( $product->TotalAvailableQuantity * $product->Cost );
+				
+			}
+			
+		}
+		
+		return $response->withJson( $return_data, 200 );
+		
+	});
+	
 	$this->get( '/products', function( $request, $response, $args ) use( $auth_service ){
 		$user_id = $response->getHeader('User_ID')[0];
 		$auth = $auth_service->Get_Auth( $user_id );
 		
 		$params = $request->getQueryParams();
 		
+		$return_data = [];
+		
 		$uri_base = "https://api.channeladvisor.com/v1/products?";
 		if( isset( $params['select'] ) ){
 			$uri_base .= '$select=' . $params['select'];
 		}
 		if( isset( $params['filter'] ) ){
-			$uri_base .= '&$filter=' . $params['filter'];
+			$uri_base .= '&$filter=' . str_replace( '^', '%20', $params['filter'] );
 		}
 		
 		$ca_response = \Httpful\Request::get( $uri_base )
@@ -149,9 +184,15 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 			->addHeaders( array( 
 				'Authorization' => "Bearer " . $auth->auth_token
 			) )
-			->send();
+			->send()->body;
+		$ca_array = (array) $ca_response;
+		if( isset( $ca_array['@odata.nextLink'] ) ){
+			
+		}
+		$next_page = $ca_array['@odata.nextLink'];
 		
-		print_r( $ca_response->body );
+		
+		return $response->withJson( $ca_response, 200 );
 		
 	});
 	
@@ -302,6 +343,64 @@ $app->group( '/authentications', function() use ( $db_sourcer ){
 			return $response->withJson( $api_return, 200 );
 			
 		}
+		
+	});
+	
+});
+
+$app->group( '/quick_brands', function() use( $db_sourcer ){
+	
+	//GET ALL QUCIK_BRANDS
+	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$params = $request->getQueryParams();
+		$select_prep = new Select_Prepare( 'ID,User_ID,Brand_Name', $params );
+		$select_fields = $select_prep->Protect_Passwords()->Get_Selects();
+		
+		$query = "SELECT $select_fields FROM quick_brands";
+		
+		$db_return = $db_sourcer->RunQuery( $query, [] );
+		
+		$api_return = new API_Return( "true", $db_return );
+
+		return $response->withJson( $api_return, 200 );
+		
+	});
+	
+	//GET ALL QUICK_BRANDS By USER
+	$this->get( '/user/{user_id}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$params = $request->getQueryParams();
+		$select_prep = new Select_Prepare( 'ID,User_ID,Brand_Name', $params );
+		$select_fields = $select_prep->Protect_Passwords()->Get_Selects();
+		
+		$query = "SELECT $select_fields FROM quick_brands WHERE User_ID = :user_id";
+		$query_params = [':user_id'=>$args['user_id']];
+		
+		$db_return = $db_sourcer->RunQuery( $query, $query_params );
+		
+		$api_return = new API_Return( "true", $db_return );
+		
+		return $response->withJson( $api_return, 200 );
+		
+	});
+	
+	//POST NEW QUICK_BRAND
+	$this->post( '', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$params = $request->getQueryParams();
+		
+		$query = "INSERT INTO quick_brands (User_ID,Brand_Name) VALUES (:user_id, :brand_name)";
+		$query_params = [
+			':user_id'=>$params['user_id'],
+			':brand_name'=>str_replace( "^", " ", $params['brand_name'] )
+		];
+		
+		$db_return = $db_sourcer->RunQuery( $query, $query_params );
+		
+		$api_return = new API_Return( "true", $db_return );
+		
+		return $response->withJson( $api_return, 201 );
 		
 	});
 	
