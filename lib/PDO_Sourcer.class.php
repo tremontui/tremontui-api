@@ -48,7 +48,7 @@ class PDO_Sourcer{
 		
 		foreach( $params_array as $param ){
 			
-			if( $p_stmt->execute( $params ) ){
+			if( $p_stmt->execute( $param ) ){
 				
 				$return_array[] = new PDO_Return( 'true', $p_stmt->fetchAll(PDO::FETCH_ASSOC) );
 				
