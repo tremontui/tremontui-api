@@ -34,6 +34,8 @@ class PDO_Sourcer{
 			
 		}
 		
+		$_pdo = null;
+		
 		return $return;
 		
 	}
@@ -59,7 +61,9 @@ class PDO_Sourcer{
 			}
 			
 		}
-
+		
+		$_pdo = null;
+		
 		return $return_array;
 		
 	}

@@ -111,27 +111,114 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 	
 	$auth_service = new CA_Auth_Service( $db_sourcer, $ca_ini );
 	
-	$this->get( '/updatebase', function( $request, $response, $args ) use( $auth_service, $db_sourcer ){
+	$this->get( '/baseitems', function( $request, $response, $args ) use( $auth_service, $db_sourcer ){
+		$user_id = $response->getHeader('User_ID')[0];
+		$auth = $auth_service->Get_Auth( $user_id );
+
+		$uri = 'https://api.channeladvisor.com/v1/products?$select=ID,Brand,Classification';
+		$data_svc = new CA_Data( $auth, $uri );
+		$data_vol = $data_svc->GetAllPages();
+		
+		return $response->withJson( $data_vol, 200 );
+	});
+	
+	$this->get( '/updateitemsfull', function( $request, $response, $args ) use( $auth_service, $db_sourcer ){
+		$time_start = microtime(true);
+		
+		$user_id = $response->getHeader('User_ID')[0];
+		$auth = $auth_service->Get_Auth( $user_id );
+		
+		$select_query = "SELECT ID,Channel_Advisor_ID FROM items WHERE Live = true ORDER BY Last_Pull ASC LIMIT 25";
+		$db_response = $db_sourcer->RunQuery( $select_query, [] );
+		
+		$products = $db_response->result;
+		$last_pull_query = "UPDATE items SET Last_Pull = CURRENT_TIMESTAMP WHERE ID IN ";
+		$last_pull_param = '(';
+		for( $i = 0, $p_length = count( $products ); $i < $p_length; $i++){
+			$p_id = $products[$i]['ID'];
+			$last_pull_param .= $p_id;
+			
+			if( $i < $p_length - 1 ){
+				$last_pull_param .= ',';
+			} else if ( $i = $p_length - 1 ){
+				$last_pull_param .= ')';
+			}
+		}
+		$db_last_pull_response = $db_sourcer->RunQuery( $last_pull_query . $last_pull_param, []);
+		
+		$results = [];
+		$data_params = [];
+		$qty_params = [];
+		foreach( $products as $product ){
+			$ca_id = $product['Channel_Advisor_ID'];
+			$uri = "https://api.channeladvisor.com/v1/products($ca_id)?" . '$select=ID,Brand,Classification,IsParent,IsInRelationship,ParentProductID,Sku,UPC,Title,Cost,RetailPrice,ReservePrice,BuyItNowPrice';
+			$uri_qty = "https://api.channeladvisor.com/v1/products($ca_id)/DCQuantities";
+			$data_svc = new CA_Data( $auth, $uri );
+			$data_vol = $data_svc->GetSinglePage();
+			$data_svc_qty = new CA_Data( $auth, $uri_qty );
+			$data_vol_qty = $data_svc_qty->GetSinglePage();
+			
+			$params = [
+				':ca_id'=>$data_vol['ID'],
+				':brand'=>$data_vol['Brand'],
+				':classification'=>$data_vol['Classification'],
+				':sku'=>$data_vol['Sku'],
+				':upc'=>$data_vol['UPC'],
+				':title'=>$data_vol['Title'],
+				':cost'=>$data_vol['Cost'],
+				':retail'=>$data_vol['RetailPrice'],
+				':reserve'=>$data_vol['ReservePrice'],
+				':bin'=>$data_vol['BuyItNowPrice'],
+				':is_parent'=>$data_vol['IsParent'],
+				':in_relationship'=>$data_vol['IsInRelationship'],
+				':parent_id'=>$data_vol['ParentProductID']
+			];
+			$data_params[] = $params;
+			
+			foreach( $data_vol_qty['value'] as $dc_item ){
+					$qty_params[] = [
+						':ca_id'=>$dc_item->ProductID,
+						':dc_id'=>$dc_item->DistributionCenterID,
+						':qty'=>$dc_item->AvailableQuantity
+					];
+			}
+			
+			$results[] = ['data'=>$data_vol,'quantities'=>$data_vol_qty];
+		}
+		
+		$data_query = "CALL full_item_update(:ca_id,:brand,:classification,:sku,:upc,:title,:cost,:retail,:reserve,:bin,:is_parent,:in_relationship,:parent_id)";
+		$db_response_data = $db_sourcer->RunQueries( $data_query, $data_params );
+		
+		$qty_query = "CALL update_distribution_center_quantity(:ca_id,:dc_id,:qty)";
+		$db_response_qty = $db_sourcer->RunQueries( $qty_query, $qty_params );
+		
+		$db_results = ['data'=>$db_response_data,'qty'=>$db_response_qty];
+		
+		$time_end = microtime(true);
+		$time = $time_end - $time_start;
+		$return_data = ['db'=>$db_results,'time'=>$time,'params'=>$data_params];
+		
+		return $response->withJson( $return_data, 200 );
+		
+	});
+	
+	$this->get( '/updateinitializations', function( $request, $response, $args ) use( $auth_service, $db_sourcer ){
+		//set_time_limit ( 7200 );
 		$user_id = $response->getHeader('User_ID')[0];
 		$auth = $auth_service->Get_Auth( $user_id );
 		
 		$db_results = [];
-		
-		//$select_qty = '$select=ID,DCQuantities[' ."'Charlotte'" .']';
-		$select_price = '$select=ID,Cost,RetailPrice,ReservePrice,BuyItNowPrice';
-		$select_cr = '$select=ID,Cost,RetailPrice';
-		$select_mp = '$select=ID,ReservePrice,BuyItNowPrice';
-		
+
 		/************
-		//GET Specs
+		//GET CA DATA
 		************/
-		$select_specs = '$select=ID,Brand,Classification';
-		$uri_specs = "https://api.channeladvisor.com/v1/products?$select_specs";
+		$select = '$select=ID,Brand,Classification';
+		$uri_specs = "https://api.channeladvisor.com/v1/products?$select";
 		$data_svc_specs = new CA_Data( $auth, $uri_specs );
 		$data_vol_specs = $data_svc_specs->GetAllPages();
 		$params_specs = [];
 		foreach( $data_vol_specs as $pages ){
-			foreach( $page as $product ){
+			foreach( $pages as $product ){
 				$params_specs[] = [
 					':channeladvisor_id'=>$product->ID,
 					':brand_name'=>$product->Brand,
@@ -139,150 +226,14 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 				];
 			}
 		}
-		$query_specs = "CALL update_specs(:channeladvisor_id,:brand_name,:classification_name)";
+		/************
+		//GET Specs
+		************/
+		$query_specs = "CALL item_initialization(:channeladvisor_id,:brand_name,:classification_name)";
 		$db_response_specs = $db_sourcer->RunQueries( $query_specs, $params_specs );
+		$db_results['specs'] = $db_response_specs;
 		
-		/************
-		//GET Base
-		************/
-		$select_base = '$select=ID,Sku,UPC';
-		$uri_base = "https://api.channeladvisor.com/v1/products?$select_base";
-		$data_svc_base = new CA_Data( $auth, $uri_base );
-		$data_vol_base = $data_svc_base->GetAllPages();
-		$params_base = [];
-		foreach( $data_vol_base as $pages ){
-			foreach( $page as $product ){
-				$params_base[] = [
-					':channeladvisor_id'=>$product->ID,
-					':sku'=>$product->Sku,
-					':upc'=>$product->UPC
-				];
-			}
-		}
-		$query_base = "CALL update_base(:channeladvisor_id,:sku,:upc)";
-		$db_response_base = $db_sourcer->RunQueries( $query_base, $params_base );
-		
-		/************
-		//GET Titles
-		************/
-		$select_titles = '$select=ID,Title';
-		$uri_titles = "https://api.channeladvisor.com/v1/products?$select_titles";
-		$data_svc_titles = new CA_Data( $auth, $uri_titles );
-		$data_vol_titles = $data_svc_titles->GetAllPages();
-		$params_titles = [];
-		foreach( $data_vol_titles as $pages ){
-			foreach( $page as $product ){
-				$params_titles[] = [
-					':channeladvisor_id'=>$product->ID,
-					':title'=>$product->Title,
-				];
-			}
-		}
-		$query_titles = "CALL update_item_title(:channeladvisor_id,:title)";
-		$db_response_titles = $db_sourcer->RunQueries( $query_titles, $params_titles );
-		
-		/*$param_data = [];
-		$return_data = [];
-
-		foreach( $data_vol as $page ){
-			
-			foreach( $page as $product ){
-				
-				$return_data[] = 
-				[
-					'channeladvisor_id'=>$product->ID,
-					'brand_name'=>$product->Brand,
-					'classification_name'=>$product->Classification,
-					'sku'=>$product->Sku,
-					'upc'=>$product->UPC,
-					'title'=>$product->Title
-				];
-				
-				$param_data[] = 
-				[
-					':channeladvisor_id'=>$product->ID,
-					':brand_name'=>$product->Brand,
-					':classification_name'=>$product->Classification,
-					':sku'=>$product->Sku,
-					':upc'=>$product->UPC,
-					':title'=>$product->Title
-				];
-				
-			}
-
-		}
-		
-		$query = "CALL full_item_update(:channeladvisor_id,:brand_name,:classification_name,:sku,:upc,:title)";
-		$db_response = $db_sourcer->RunQueries( $query, $param_data );*/
-		
-		return $response->withJson( $db_response_specs, 200 );
-		
-	});
-	
-	$this->get( '/updatespecs', function( $request, $response, $args ) use ( $auth_service, $db_sourcer ) {
-		$user_id = $response->getHeader('User_ID')[0];
-		$auth = $auth_service->Get_Auth( $user_id );
-
-		$select_query = "SELECT Channel_Advisor_ID FROM items WHERE Last_Update < CURRENT_DATE OR Last_Update IS NULL ORDER BY Last_Update ASC LIMIT 300";
-		$db_response_1 = $db_sourcer->RunQuery( $select_query, [] );
-		
-		if( $db_response_1->db_success == 'true' ){
-			$multi_params = [];
-			
-			$result_set = $db_response_1->result;
-			foreach( $result_set as $row ){
-				$ca_id = $row['Channel_Advisor_ID'];
-				$uri_base = 'https://api.channeladvisor.com/v1/products(' . $ca_id . ')?$select=Sku,UPC,Title,Classification,Brand';
-				
-				$data_svc = new CA_Data( $auth, $uri_base );
-				$data_response = $data_svc->GetSinglePage();
-
-				$multi_params[] = [
-					':ca_id'=>$ca_id,
-					':sku'=>$data_response['Sku'],
-					':upc'=>$data_response['UPC'],
-					':title'=>$data_response['Title'],
-					':brand'=>$data_response['Brand'],
-					':classification'=>$data_response['Classification']
-				];
-
-			}
-			
-			$update_specs_query = "CALL update_specs(:ca_id,:sku,:upc,:title,:brand,:classification)";
-			$update_specs_response = $db_sourcer->RunQueries( $update_specs_query, $multi_params );
-			
-			return $response->withJson( $update_specs_response, 200 );
-		} else {
-			return $response->withJson( 'blarg', 200 );
-		}
-		
-		
-		
-		/*
-		
-		
-		
-		$query = "CALL update_item_sku(:sku,:ca_id)";*/
-		//$query_params = [':sku'=>,':ca_id'=>$ca_id];
-		
-	});
-	
-	$this->get( '/test', function( $request, $response, $args ) use( $auth_service ){
-		$user_id = $response->getHeader('User_ID')[0];
-		$auth = $auth_service->Get_Auth( $user_id );
-		
-		$uri_base = "https://api.channeladvisor.com/v1/products?";
-				
-		$ca_response = \Httpful\Request::get( $uri_base )
-			->expectsJson()
-			->addHeaders( array( 
-				'Authorization' => "Bearer " . $auth->auth_token
-			) )
-			->send();
-		
-		print_r('<pre>');
-		print_r( $ca_response->body->value );
-		print_r('</pre>');
+		return $response->withJson( $db_results, 200 );
 	});
 	
 	$this->get( '/brandoverview', function( $request, $response, $args ) use( $auth_service ){
@@ -406,11 +357,6 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 		print_r('<pre>');
 		print_r( $ca_response_body );
 		print_r('</pre>');
-		/*print_r( $ca_response_body );
-		print_r('<pre>');
-		print_r( $response->getHeaders() );
-		print_r('</pre>');*/
-		//print_r( $response );
 	});
 	
 	//REFRESH TOKEN
@@ -483,17 +429,178 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 	
 });
 
-$app->group( '/items', function() use ( $db_sourcer ){
+$app->group( '/brands', function() use ( $db_sourcer ){
 	
 	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
 		
-		$query = "SELECT * FROM items";
+		$query = "SELECT ID,Brand FROM brands";
 		$db_result = $db_sourcer->RunQuery( $query, [] );
 		
 		return $response->withJson( $db_result, 200 );
 		
 	});
 	
+	$this->get( '/{brand_id}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$query = "SELECT ID,Brand FROM brands WHERE ID = :brand_id";
+		$query_params = [':brand_id'=>$args['brand_id']];
+		$db_result = $db_sourcer->RunQuery( $query, $query_params );
+		
+		return $response->withJson( $db_result, 200 );
+		
+	});
+	
+	$this->get( '/by_name/{brand_name}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$query = "SELECT ID,Brand FROM brands WHERE Brand = :brand_name";
+		$query_params = [':brand_name'=>$args['brand_name']];
+		$db_result = $db_sourcer->RunQuery( $query, $query_params );
+		
+		return $response->withJson( $db_result, 200 );
+		
+	});
+	
+});
+
+$app->group( '/brands_canonical', function() use ( $db_sourcer ){
+	
+	$this->get( '/{brand_id}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$query = "SELECT ID,Brand_ID,Quantity,Value FROM brands_canonical WHERE Brand_ID = :brand_id";
+		$query_params = [':brand_id'=>$args['brand_id']];
+		$db_result = $db_sourcer->RunQuery( $query, $query_params );
+		
+		return $response->withJson( $db_result, 200 );
+		
+	});
+	
+	$this->get( '/by_name/{brand_name}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$query = "SELECT a.* FROM brands_canonical a INNER JOIN brands b ON a.Brand_ID = b.ID WHERE b.Brand = :brand_name";
+		$query_params = [':brand_name'=>revert_replacers( $args['brand_name'] )];
+		$db_result = $db_sourcer->RunQuery( $query, $query_params );
+		
+		return $response->withJson( $db_result, 200 );
+		
+	});
+	
+});
+
+function check_replacers( $string ){
+	$replacers = [" "=>"^s^", "&"=>"^a^"];
+	$new_string = $string;
+	foreach( $replacers as $find=>$replace ){
+		$new_string = str_replace( $find, $replace, $new_string );
+	}
+	
+	return $new_string;
+}
+
+function revert_replacers( $string ){
+	$replacers = ["^s^"=>" ", "^a^"=>"&"];
+	$new_string = $string;
+	foreach( $replacers as $find=>$replace ){
+		$new_string = str_replace( $find, $replace, $new_string );
+	}
+	
+	return $new_string;
+}
+
+$app->group( '/items', function() use ( $db_sourcer ){
+	
+	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$query = "SELECT Channel_Advisor_ID FROM items";
+		$db_result = $db_sourcer->RunQuery( $query, [] );
+		
+		return $response->withJson( $db_result, 200 );
+		
+	});
+	
+	$this->get( '/count', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$query = "SELECT COUNT(Channel_Advisor_ID) AS Count FROM items";
+		$db_result = $db_sourcer->RunQuery( $query, [] );
+		
+		return $response->withJson( $db_result, 200 );
+		
+	});
+	
+	$this->post( '/initialize_bundle', function( $request, $response, $args ) use( $db_sourcer ){
+		$time_start = microtime(true);
+		$params = json_decode( stripcslashes($request->getBody()->getContents()), true);
+		
+		$query = "CALL item_initialization(:ca_id,:brand,:classification)";
+		$query_params = [];
+		foreach( $params as $product ){
+			$query_params[] = [
+				':ca_id'=>$product['ID'],
+				':brand'=>$product['Brand'],
+				':classification'=>$product['Classification']
+			];
+		}
+		
+		$db_result = $db_sourcer->RunQueries( $query, $query_params );
+		$time_end = microtime(true);
+		$time = $time_end - $time_start;
+		$return_data = ['db'=>$db_result,'time'=>$time];
+		
+		return $response->withJson( $return_data, 200 );
+	});
+	
+	$this->post( '', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$params = $request->getQueryParams();
+		
+		/*$query = "CALL item_initialization(:ca_id,:brand,:classification)";
+		$query_params = [
+			':ca_id'=>$params['ca_id'],
+			':brand'=>$params['brand'],
+			':classification'=>$params['classification']
+		];
+		
+		$db_result = $db_sourcer->RunQuery( $query, $query_params );*/
+		
+		return $response->withJson( $params, 200 );
+	});
+	
+	$this->patch( '/{ca_id}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$params = $request->getQueryParams();
+		
+		$query = "CALL full_item_update(:ca_id,:brand,:classification.:sku,:UPC,:Title,:Cost,:Retail,:Reserve,:BIN)";
+		$query_params = [
+			':ca_id'=>$args['ca_id'],
+			':brand'=>$params['brand'],
+			':sku'=>$params['sku'],
+			':UPC'=>$params['UPC'],
+			':Title'=>$params['Title'],
+			':Cost'=>$params['Cost'],
+			':Retail'=>$params['Retail'],
+			':Reserve'=>$params['Reserve'],
+			':BIN'=>$params['BIN']
+		];
+		
+		$db_result = $db_sourcer->RunQuery( $query, $query_params );
+		
+		return $response->withJson( $db_result, 200 );
+	});
+	
+	$this->patch( '/quantity/{ca_id}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$params = $request->getQueryParams();
+		
+		$query = "CALL update_distribution_center_quantity(:ca_id,:brand,:classification)";
+		$query_params = [
+			':ca_id'=>$args['ca_id'],
+			':brand'=>$params['brand'],
+			':sku'=>$params['sku']
+		];
+		
+		$db_result = $db_sourcer->RunQuery( $query, $query_params );
+		
+		return $response->withJson( $db_result, 200 );
+	});
 });
 
 $app->group( '/authentications', function() use ( $db_sourcer ){
@@ -577,7 +684,7 @@ $app->group( '/quick_brands', function() use( $db_sourcer ){
 		$query = "INSERT INTO quick_brands (User_ID,Brand_Name) VALUES (:user_id, :brand_name)";
 		$query_params = [
 			':user_id'=>$params['user_id'],
-			':brand_name'=>str_replace( "^", " ", $params['brand_name'] )
+			':brand_name'=>revert_replacers( $params['brand_name'] )
 		];
 		
 		$db_return = $db_sourcer->RunQuery( $query, $query_params );
