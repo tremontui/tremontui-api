@@ -487,7 +487,7 @@ $app->group( '/brands_canonical', function() use ( $db_sourcer ){
 });
 
 function check_replacers( $string ){
-	$replacers = [" "=>"^s^", "&"=>"^a^"];
+	$replacers = [" "=>"zqzszqz", "&"=>"zqzazqz"];
 	$new_string = $string;
 	foreach( $replacers as $find=>$replace ){
 		$new_string = str_replace( $find, $replace, $new_string );
@@ -497,7 +497,7 @@ function check_replacers( $string ){
 }
 
 function revert_replacers( $string ){
-	$replacers = ["^s^"=>" ", "^a^"=>"&"];
+	$replacers = ["zqzszqz"=>" ", "zqzazqz"=>"&"];
 	$new_string = $string;
 	foreach( $replacers as $find=>$replace ){
 		$new_string = str_replace( $find, $replace, $new_string );
@@ -692,6 +692,27 @@ $app->group( '/quick_brands', function() use( $db_sourcer ){
 		$api_return = new API_Return( "true", $db_return );
 		
 		return $response->withJson( $api_return, 201 );
+		
+	});
+	
+	//DELETE QUICK_BRAND
+	$this->post( '/delete/{brand_name}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$params = $request->getQueryParams();
+		
+		$return = [$params,$args];
+		
+		$query = "DELETE FROM quick_brands WHERE User_ID = :user_id AND Brand_Name = :brand_name";
+		$query_params = [
+			':user_id'=>$params['user_id'],
+			':brand_name'=>revert_replacers( $args['brand_name'] )
+		];
+		
+		$db_return = $db_sourcer->RunQuery( $query, $query_params );
+		
+		$api_return = new API_Return( "true", $db_return );
+		
+		return $response->withJson( $query, 201 );
 		
 	});
 	
