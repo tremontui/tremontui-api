@@ -10,7 +10,7 @@ session_start();
 /**
  *	NAMESPACING
  */
-use Slim\Views\PhpRenderer;	
+use Slim\Views\PhpRenderer;
 use Psr\Http\Message\RequestInterface as Request;
 use Psr\Http\Message\ResponseInterface as Response;
 
@@ -39,6 +39,15 @@ $db_sourcer = new PDO_Sourcer( "mysql:host=$host;port=$port;dbname=$database", $
 /**
  *	MIDDLEWARE
  */
+/*$corsOptions = array(
+	"origin" => "*",
+	"exposeHeaders" => array("Content-Type", "X-Requested-With", "X-authentication", "X-client"),
+	"allowMethods" => array('GET', 'POST', 'PUT', 'DELETE', 'OPTIONS')
+);
+$cors = new \CorsSlim\CorsSlim($corsOptions);
+$app->add($cors);*/
+
+
 $app->add( function( Request $request, Response $response, callable $next ) {
     $uri = $request->getUri();
     $path = $uri->getPath();
@@ -99,6 +108,9 @@ $app->add( function( Request $request, Response $response, callable $next ) use(
 	
 });
 
+//$app->add(new \CorsSlim\CorsSlim());
+
+
 $app->get( '/', function( $request, $response, $args ) use( $db_sourcer ){
 	
 	$onload = ['title' => 'Tremont UI API Documentation'];
@@ -106,6 +118,12 @@ $app->get( '/', function( $request, $response, $args ) use( $db_sourcer ){
 	return $this->renderer->render( $response, '/docs.php', $onload );
 	
 });
+
+$app->get('/ping', function( $request, $response, $arg){
+	return $response->withJson( 'Ping Received', 200);
+});
+
+
 
 $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 	
@@ -282,9 +300,9 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 	$this->get( '/products', function( $request, $response, $args ) use( $auth_service ){
 		$user_id = $response->getHeader('User_ID')[0];
 		$auth = $auth_service->Get_Auth( $user_id );
-		
+
 		$params = $request->getQueryParams();
-		
+
 		$return_data = [];
 		
 		$uri_base = "https://api.channeladvisor.com/v1/products?";
@@ -300,7 +318,7 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 		if( isset( $params['skip'] ) ){
 			$uri_base .= '&$skip=' . $params['skip'];
 		}
-		
+
 		$ca_response = \Httpful\Request::get( $uri_base )
 			->expectsJson()
 			->addHeaders( array( 
@@ -309,13 +327,14 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 			->send()->body;
 		$ca_array = (array) $ca_response;
 		if( isset( $ca_array['@odata.nextLink'] ) ){
-			
+			$next_page = $ca_array['@odata.nextLink'];
 		}
-		$next_page = $ca_array['@odata.nextLink'];
 		
-		
+		//update database
+
+
 		return $response->withJson( $ca_response, 200 );
-		
+
 	});
 	
 	$this->get( '/authorize', function( $request, $response, $args ) use( $ca_ini ){
@@ -429,6 +448,115 @@ $app->group( '/channeladvisor', function() use ( $db_sourcer, $ca_ini ){
 	
 });
 
+
+$app->group('/products', function() use ($db_sourcer, $ca_ini ){
+
+	$auth_service = new CA_Auth_Service( $db_sourcer, $ca_ini );
+
+	$this->get('/by_upc/{upc}', function( $request, $response, $args) use($auth_service, $db_sourcer){
+		//get the most recent update of the product on CA
+		$user_id = $response->getHeader('User_ID')[0];
+		$auth = $auth_service->Get_Auth( $user_id );
+
+		$uri_base = 'https://api.channeladvisor.com/v1/products?$filter=upc%20eq%20' . "'" . $args['upc'] . "'";
+
+		$ca_response = \Httpful\Request::get( $uri_base )
+			->expectsJson()
+			->addHeaders( array(
+				'Authorization' => "Bearer " . $auth->auth_token
+			) )
+			->send()->body;
+		$ca_array = (array) $ca_response;
+
+		//confirm the item was retrieved.
+		$ca_value = (array)$ca_response->value;
+
+		//if retrieved check to see if exists in db
+		if(!empty($ca_value)){
+			$select_query = "SELECT ID FROM items WHERE Channel_Advisor_ID = :ca_id";
+			$select_params = [':ca_id'=>$ca_value[0]->ID];
+			$db_result = $db_sourcer->RunQuery($select_query, $select_params);
+
+			$db_result_value = $db_result->result;
+
+			if(!empty($db_result_value)){
+				//update it and return its value
+				$update_query = "CALL full_item_update(:ca_id,:brand,:classification.:sku,:UPC,:Title,:Cost,:Retail,:Reserve,:BIN)";
+				$update_params = [
+					':ca_id'=>$ca_value[0]->Id,
+					':brand'=>$ca_value[0]->Brand,
+					':sku'=>$ca_value[0]->Sku,
+					':UPC'=>$ca_value[0]->UPC,
+					':Title'=>$ca_value[0]->Title,
+					':Cost'=>$ca_value[0]->Cost,
+					':Retail'=>$ca_value[0]->RetailPrice,
+					':Reserve'=>$ca_value[0]->ReservePrice,
+					':BIN'=>$ca_value[0]->BuyItNowPrice
+				];
+				$update_result = $db_sourcer->RunQuery($update_query, $update_params);
+
+				if($update_result->db_success){
+					$select_query = "SELECT * FROM items_canonical WHERE Channel_Advisor_ID = :ca_id";
+					$select_params = [':ca_id'=>$ca_value[0]->ID];
+					$db_result = $db_sourcer->RunQuery($select_query, $select_params);
+					$db_result_value = $db_result->result;
+					return $response->withJson(['product'=>$db_result_value, 'ca_result'=>true], 200);
+				}
+				//return error for not updating
+			} else {
+				//create it and return its value
+				$initialize_query = "CALL item_initializtion(:ca_id, :brand, :classification)";
+				$initialize_params = [
+					':ca_id'=>$ca_value[0]->ID,
+					':brand'=>$ca_value[0]->Brand,
+					'classification'=>$ca_value[0]->Classification
+				];
+
+				$init_result = $db_sourcer->RunQuery($initialize_query, $initialize_params);
+				if($init_result->db_success){
+					$update_query = "CALL full_item_update(:ca_id,:brand,:classification.:sku,:UPC,:Title,:Cost,:Retail,:Reserve,:BIN)";
+					$update_params = [
+						':ca_id'=>$ca_value[0]->Id,
+						':brand'=>$ca_value[0]->Brand,
+						':sku'=>$ca_value[0]->Sku,
+						':UPC'=>$ca_value[0]->UPC,
+						':Title'=>$ca_value[0]->Title,
+						':Cost'=>$ca_value[0]->Cost,
+						':Retail'=>$ca_value[0]->RetailPrice,
+						':Reserve'=>$ca_value[0]->ReservePrice,
+						':BIN'=>$ca_value[0]->BuyItNowPrice
+					];
+					$update_result = $db_sourcer->RunQuery($update_query, $update_params);
+
+					if($update_result->db_success){
+						$select_query = "SELECT * FROM items_canonical WHERE Channel_Advisor_ID = :ca_id";
+						$select_params = [':ca_id'=>$ca_value[0]->ID];
+						$db_result = $db_sourcer->RunQuery($select_query, $select_params);
+						$db_result_value = $db_result->result;
+						return $response->withJson(['product'=>$db_result_value, 'ca_result'=>true], 200);
+					}
+					//return error for not updating
+				}
+				//return error for not initializing
+
+			}
+		} else {
+			//check if there is a db return
+			$select_query = "SELECT * FROM items_canonical WHERE UPC = :upc";
+			$select_params = [':upc'=>$args['upc']];
+			$db_result = $db_sourcer->RunQuery($select_query, $select_params);
+
+			$db_result_value = $db_result->result;
+			if(!empty($db_result_value)){
+				return $response->withJson(['product'=>$db_result_value, 'ca_result'=>false], 200);
+			} else {
+				return $response->withJson(['product'=>false, 'ca_result'=>false], 200);
+			}
+		}
+	});
+
+});
+
 $app->group( '/brands', function() use ( $db_sourcer ){
 	
 	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
@@ -486,25 +614,28 @@ $app->group( '/brands_canonical', function() use ( $db_sourcer ){
 	
 });
 
-function check_replacers( $string ){
-	$replacers = [" "=>"zqzszqz", "&"=>"zqzazqz"];
-	$new_string = $string;
-	foreach( $replacers as $find=>$replace ){
-		$new_string = str_replace( $find, $replace, $new_string );
-	}
+$app->group( '/items_canonical', function() use ( $db_sourcer ){
 	
-	return $new_string;
-}
-
-function revert_replacers( $string ){
-	$replacers = ["zqzszqz"=>" ", "zqzazqz"=>"&"];
-	$new_string = $string;
-	foreach( $replacers as $find=>$replace ){
-		$new_string = str_replace( $find, $replace, $new_string );
-	}
+	$this->get( '', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$query = "SELECT * FROM items_canonical";
+		$db_result = $db_sourcer->RunQuery( $query, [] );
+		
+		return $response->withJson( $db_result, 200 );
+		
+	});
 	
-	return $new_string;
-}
+	$this->get( '/by_brandname/{brand_name}', function( $request, $response, $args ) use( $db_sourcer ){
+		
+		$query = "SELECT a.* FROM items_canonical a INNER JOIN brands b ON a.Brand_ID = b.ID WHERE b.Brand = :brand_name";
+		$params = ['brand_name'=>$args['brand_name']];
+		$db_result = $db_sourcer->RunQuery( $query, $params );
+		
+		return $response->withJson( $db_result, 200 );
+		
+	});
+	
+});
 
 $app->group( '/items', function() use ( $db_sourcer ){
 	
@@ -718,6 +849,49 @@ $app->group( '/quick_brands', function() use( $db_sourcer ){
 	
 });
 
+/**
+ *	INVENTORY INTERFACE
+ *	Interacting with inventory tasks and histories
+ */
+$app->group( '/inventory_tasks', function() use($db_sourcer){
+	//	GET ALL BASIC DATA ABOUT INVENTORY TASKS
+	//	
+	$this->get('', function($request, $response, $args) use($db_sourcer){
+		
+	});
+	
+	// POST A NEW INVENTORY TASK
+	//
+	$this->post('',function($request, $response, $args)  use($db_sourcer){
+		
+		$params = $request->getQueryParams();
+		//TD ---> Check that params contain all necessary data
+		if( isset($params['task_type'])  && isset($params['user_id']) ){
+			
+			$query = "INSERT INTO inventory_tasks (Task_Type, User_ID) VALUES(:task_type, :user_id)";
+			$query_params = [
+				':task_type'=>$params['task_type'],
+				':user_id'=>$params['user_id']
+			];
+			
+			$db_return = $db_sourcer->RunQuery( $query, $query_params);
+		
+			$api_return = new API_Return( "true", $db_return );
+			
+			return $response->withJson( $api_return, 200 );
+			
+		} else {
+			
+			$api_return = new API_Return( "false", 'Not all paramaters have been set' );
+			
+			return $response->withJson( $api_return, 400 );
+			
+		}
+		
+		
+	});
+});
+
 $app->group( '/users', function() use( $db_sourcer ){
 	
 	//GET ALL USERS
@@ -876,8 +1050,62 @@ $app->group( '/users', function() use( $db_sourcer ){
 		}
 				
 	});
-	
+
 });
+
+function check_replacers( $string ){
+	$replacers = [" "=>"zqzszqz", "&"=>"zqzazqz"];
+	$new_string = $string;
+	foreach( $replacers as $find=>$replace ){
+		$new_string = str_replace( $find, $replace, $new_string );
+	}
+	
+	return $new_string;
+}
+
+function revert_replacers( $string ){
+	$replacers = ["zqzszqz"=>" ", "zqzazqz"=>"&"];
+	$new_string = $string;
+	foreach( $replacers as $find=>$replace ){
+		$new_string = str_replace( $find, $replace, $new_string );
+	}
+	
+	return $new_string;
+}
 
 $app->run();
 ?>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

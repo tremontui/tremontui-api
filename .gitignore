@@ -1,0 +1,8 @@
+<<<<<<< HEAD
+.idea/workspace.xml
+=======
+.idea/
+vendor/
+*.xml
+templates/ng
+>>>>>>> Major-Refactor-4.25.2016
